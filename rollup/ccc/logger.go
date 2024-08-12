@@ -109,6 +109,13 @@ func (l *Logger) RowConsumption() types.RowConsumption {
 	}
 }
 
+// ForceError makes sure to trigger an error on the next step, should only be used in tests
+func (l *Logger) ForceError() {
+	l.evmUsage += l.limitPerCircuit + 1
+	l.stateUsage += l.limitPerCircuit + 1
+	l.bytecodeUsage += l.limitPerCircuit + 1
+}
+
 // evm circuit resource usage per OpCode
 var evmUsagePerOpCode = [256]uint64{
 	2,  // STOP (0)
