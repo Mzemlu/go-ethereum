@@ -60,6 +60,9 @@ func (l *Logger) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *
 	case vm.EXTCODECOPY:
 		l.logBytecodeAccessAt(common.Address(scope.Stack.Back(0).Bytes20()))
 	case vm.DELEGATECALL, vm.CALL, vm.STATICCALL, vm.CALLCODE:
+		if l.currentEnv != nil && l.currentEnv.To != nil {
+			l.logBytecodeAccessAt(*l.currentEnv.To)
+		}
 		l.logBytecodeAccessAt(common.Address(scope.Stack.Back(1).Bytes20()))
 	}
 }
