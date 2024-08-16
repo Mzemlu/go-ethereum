@@ -8,6 +8,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/core/vm"
+	"github.com/scroll-tech/go-ethereum/crypto"
 )
 
 var _ vm.EVMLogger = (*Logger)(nil)
@@ -16,6 +17,7 @@ type Logger struct {
 	limitPerCircuit uint64
 
 	currentEnv    *vm.EVM
+	isCreate      bool
 	codesAccessed map[common.Hash]bool
 
 	evmUsage      uint64
@@ -37,18 +39,29 @@ func (l *Logger) Snapshot() *Logger {
 	return &newL
 }
 
-func (l *Logger) logBytecodeAccessAt(addr common.Address) {
-	codeHash := l.currentEnv.StateDB.GetKeccakCodeHash(addr)
+func (l *Logger) logBytecodeAccess(codeHash common.Hash, codeSize uint64) {
 	if codeHash != (common.Hash{}) && !l.codesAccessed[codeHash] {
-		l.bytecodeUsage += l.currentEnv.StateDB.GetCodeSize(addr)
+		l.bytecodeUsage += codeSize
 		l.codesAccessed[codeHash] = true
 	}
 }
 
+func (l *Logger) logBytecodeAccessAt(addr common.Address) {
+	codeHash := l.currentEnv.StateDB.GetKeccakCodeHash(addr)
+	l.logBytecodeAccess(codeHash, l.currentEnv.StateDB.GetCodeSize(addr))
+}
+
+func (l *Logger) logRawBytecode(code []byte) {
+	l.logBytecodeAccess(crypto.Keccak256Hash(code), uint64(len(code)))
+}
+
 func (l *Logger) CaptureStart(env *vm.EVM, from common.Address, to common.Address, create bool, input []byte, gas uint64, value *big.Int) {
 	l.currentEnv = env
-	if !create {
+	l.isCreate = create
+	if !l.isCreate {
 		l.logBytecodeAccessAt(to)
+	} else {
+		l.logRawBytecode(input) // init bytecode
 	}
 }
 
@@ -58,21 +71,27 @@ func (l *Logger) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *
 
 	switch op {
 	case vm.EXTCODECOPY:
-		l.logBytecodeAccessAt(common.Address(scope.Stack.Back(0).Bytes20()))
+		l.logBytecodeAccessAt(scope.Stack.Back(0).Bytes20())
 	case vm.DELEGATECALL, vm.CALL, vm.STATICCALL, vm.CALLCODE:
 		if l.currentEnv != nil && l.currentEnv.To != nil {
 			l.logBytecodeAccessAt(*l.currentEnv.To)
 		}
-		l.logBytecodeAccessAt(common.Address(scope.Stack.Back(1).Bytes20()))
+		l.logBytecodeAccessAt(scope.Stack.Back(1).Bytes20())
 	}
 }
 
 func (l *Logger) CaptureStateAfter(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, depth int, err error) {
-
+	switch op {
+	case vm.CREATE, vm.CREATE2:
+		l.logBytecodeAccessAt(scope.Stack.Back(0).Bytes20()) // deployed bytecode
+	}
 }
 
 func (l *Logger) CaptureEnter(typ vm.OpCode, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
-
+	switch typ {
+	case vm.CREATE, vm.CREATE2:
+		l.logRawBytecode(input) // init bytecode
+	}
 }
 
 func (l *Logger) CaptureExit(output []byte, gasUsed uint64, err error) {
@@ -84,7 +103,9 @@ func (l *Logger) CaptureFault(pc uint64, op vm.OpCode, gas, cost uint64, scope *
 }
 
 func (l *Logger) CaptureEnd(output []byte, gasUsed uint64, t time.Duration, err error) {
-
+	if l.isCreate {
+		l.logRawBytecode(output) // deployed bytecode
+	}
 }
 
 // Error returns an error if executed txns triggered an overflow
