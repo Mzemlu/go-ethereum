@@ -824,6 +824,7 @@ func (w *worker) commit(force bool) (common.Hash, error) {
 	} else {
 		commitReasonCCCCounter.Inc(1)
 	}
+	log.Info("Go CCC", "hash", block.Hash(), "rc", w.current.cccLogger.RowConsumption())
 	w.current = nil
 	return block.Hash(), nil
 }

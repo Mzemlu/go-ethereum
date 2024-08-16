@@ -141,8 +141,10 @@ func (c *AsyncChecker) checkerTask(block *types.Block, ccc *Checker, forkCtx con
 	}
 
 	var err error
+	var failingRc *types.RowConsumption
 	failingCallback := func() {
 		failCounter.Inc(1)
+		log.Info("Rust CCC", "hash", block.Hash(), "rc", failingRc, "err", err)
 		if isForkStillActive(forkCtx) {
 			// we failed the CCC check, cancel the context to signal all tasks preceding this one to terminate early
 			forkCtxCancelFunc()
@@ -187,6 +189,7 @@ func (c *AsyncChecker) checkerTask(block *types.Block, ccc *Checker, forkCtx con
 				// by this txn alone is enough to overflow the circuit, skip
 				ShouldSkip: txIdx == 0 || curRc.Difference(*accRc).IsOverflown(),
 			}
+			failingRc = curRc
 			return failingCallback
 		}
 		accRc = curRc
